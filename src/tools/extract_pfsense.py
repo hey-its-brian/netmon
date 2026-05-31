@@ -14,7 +14,11 @@ Usage:
 import argparse
 import sys
 
-from ..ruleset.pfsense import parse_pfsense_interfaces, parse_pfsense_rules
+from ..ruleset.pfsense import (
+    parse_pfsense_aliases,
+    parse_pfsense_interfaces,
+    parse_pfsense_rules,
+)
 from ..ruleset.yaml_io import dump_ruleset
 
 
@@ -36,14 +40,15 @@ def main(argv=None) -> int:
     try:
         rules = parse_pfsense_rules(args.config)
         interfaces = parse_pfsense_interfaces(args.config)
+        aliases = parse_pfsense_aliases(args.config)
     except Exception as e:  # noqa: BLE001
         print(f"error: failed to parse {args.config}: {e}", file=sys.stderr)
         return 1
 
-    dump_ruleset(rules, interfaces, args.out)
+    dump_ruleset(rules, interfaces, aliases, args.out)
     print(
-        f"Extracted {len(rules)} rule(s) and {len(interfaces)} interface(s) "
-        f"from {args.config} -> {args.out}"
+        f"Extracted {len(rules)} rule(s), {len(interfaces)} interface(s), "
+        f"{len(aliases)} alias(es) from {args.config} -> {args.out}"
     )
     return 0
 

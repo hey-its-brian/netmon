@@ -20,7 +20,9 @@ detection:
   correlation:
     enabled: true                 # Compare traffic against your pfSense ruleset
     ruleset_path: "/config/rules.yaml"  # sanitized rules+interfaces (see tools.extract_pfsense)
-    alert_on_no_match: true       # Alert on traffic matching no configured rule
+    # action_mismatch (rule says X, traffic did Y) always alerts — it's the high-signal one.
+    # no_matching_rule is mostly default-deny noise; enable for audits, off for live.
+    alert_on_no_match: false
 
 alerts:
   stdout: true

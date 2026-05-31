@@ -10,7 +10,7 @@ SQLite, and raises alerts on anomalies using three complementary detectors.
 |----------|--------------|
 | **Threshold rules** | Hard limits: high block volume from one IP, port scans, connections to suspicious ports. |
 | **Statistical baselines** | Learns hourly/daily norms (connection counts, block ratio) over a learning period, then alerts on deviations beyond N standard deviations. |
-| **Rule-to-log correlation** | Compares live traffic against your *actual* pfSense ruleset (parsed from a `config.xml` backup) and flags `action_mismatch` (rule says one thing, traffic did another) and `no_matching_rule` (traffic governed by no rule). Ported from the `yalt_inspector` project. |
+| **Rule-to-log correlation** | Compares live traffic against your *actual* pfSense ruleset and flags `action_mismatch` (the governing rule says one thing, traffic did another) and `no_matching_rule` (traffic governed by no rule). The matcher replicates pfSense's evaluation: first-match ordering, alias expansion (host/network/port), CIDR + interface network keywords (`lan`/`lanip`/`(self)`), negation, port ranges, and combined `tcp/udp`. When a rule references something it can't resolve, it stays silent rather than guess. Ported/extended from the `yalt_inspector` project. |
 
 ## Architecture
 
@@ -99,6 +99,6 @@ server to `docker-host-ip:514`, and forward at least the Firewall logs.
 ## Roadmap
 
 - Phase 4: Pi-hole DNS log integration and DNS/firewall correlation.
-- Interface-name mapping (logical `lan`/`wan` ↔ device `igb1.20`) to tighten
-  correlation matching.
+- Interface groups and floating-rule ordering (currently approximated by
+  document order; per-interface first-match is handled).
 - Additional alert channels (email, Pushover, Discord).

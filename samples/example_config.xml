@@ -5,45 +5,101 @@
     <wan>
       <if>igb0</if>
       <descr>WAN</descr>
+      <ipaddr>203.0.113.10</ipaddr>
+      <subnet>24</subnet>
     </wan>
     <lan>
       <if>igb1</if>
       <descr>LAN</descr>
+      <ipaddr>192.168.1.1</ipaddr>
+      <subnet>24</subnet>
     </lan>
-    <opt2>
+    <opt1>
       <if>igb1.20</if>
       <descr>VLAN20</descr>
-    </opt2>
+      <ipaddr>192.168.20.1</ipaddr>
+      <subnet>24</subnet>
+    </opt1>
   </interfaces>
+
+  <aliases>
+    <alias>
+      <name>DNS_Servers</name>
+      <type>host</type>
+      <address>8.8.8.8 8.8.4.4 1.1.1.1</address>
+      <descr>Public DNS resolvers</descr>
+    </alias>
+    <alias>
+      <name>VLAN20_Net</name>
+      <type>network</type>
+      <address>192.168.20.0/24</address>
+      <descr>VLAN20 subnet</descr>
+    </alias>
+    <alias>
+      <name>P2P_Ports</name>
+      <type>port</type>
+      <address>32100</address>
+      <descr>Camera P2P ports</descr>
+    </alias>
+  </aliases>
+
   <filter>
-    <!-- Consistent: we intend to BLOCK VLAN20 clients reaching external DNS. -->
+    <!-- 1. Block VLAN20 -> external DNS (uses host + network aliases). -->
     <rule>
       <type>block</type>
-      <interface>opt2</interface>
+      <interface>opt1</interface>
       <protocol>udp</protocol>
       <source>
-        <any></any>
+        <address>VLAN20_Net</address>
       </source>
       <destination>
-        <address>1.1.1.1</address>
+        <address>DNS_Servers</address>
         <port>53</port>
       </destination>
-      <descr>Block VLAN20 external DNS (Cloudflare)</descr>
+      <descr>Block VLAN20 external DNS</descr>
     </rule>
 
-    <!-- Mismatch demo: rule says PASS on LAN, but the log shows these blocked. -->
+    <!-- 2. Block VLAN20 -> camera P2P (uses a port alias, any destination). -->
+    <rule>
+      <type>block</type>
+      <interface>opt1</interface>
+      <protocol>udp</protocol>
+      <source>
+        <address>VLAN20_Net</address>
+      </source>
+      <destination>
+        <any></any>
+        <port>P2P_Ports</port>
+      </destination>
+      <descr>Block VLAN20 P2P egress</descr>
+    </rule>
+
+    <!-- 3. Otherwise allow VLAN20 outbound (broad pass BELOW the blocks). -->
+    <rule>
+      <type>pass</type>
+      <interface>opt1</interface>
+      <source>
+        <address>VLAN20_Net</address>
+      </source>
+      <destination>
+        <any></any>
+      </destination>
+      <descr>Allow VLAN20 general egress</descr>
+    </rule>
+
+    <!-- 4. Pass LAN mail client IMAPS — used to demo a real action_mismatch. -->
     <rule>
       <type>pass</type>
       <interface>lan</interface>
       <protocol>tcp</protocol>
       <source>
-        <any></any>
+        <network>lan</network>
       </source>
       <destination>
         <address>172.253.115.108</address>
         <port>993</port>
       </destination>
-      <descr>Allow mail client IMAPS to Google</descr>
+      <descr>Allow LAN IMAPS to Google</descr>
     </rule>
   </filter>
 </pfsense>
