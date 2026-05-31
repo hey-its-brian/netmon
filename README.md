@@ -15,10 +15,10 @@ SQLite, and raises alerts on anomalies using three complementary detectors.
 ## Architecture
 
 ```
-pfSense ──syslog/UDP 514──▶ Syslog Receiver ─▶ Parser ─▶ SQLite ─▶ Detection ─▶ Alerts (stdout)
-                                                                   ├─ threshold rules
-                                                                   ├─ statistical baselines
-                                                                   └─ rule-to-log correlation
+pfSense ──syslog/UDP 514──▶ Syslog Receiver ─▶ Parser ─▶ SQLite ─▶ Detection ─▶ Alerts
+                                                                   ├─ threshold rules        ├─ stdout (logs)
+                                                                   ├─ statistical baselines  └─ Home Assistant
+                                                                   └─ rule-to-log correlation    (CRITICAL push)
 ```
 
 ## Layout
@@ -30,8 +30,8 @@ src/
   parsers/             # log-line parsers (pfSense filterlog; pihole stub)
   ruleset/             # pfSense config.xml parser + rules.yaml read/write
   storage/             # SQLite storage + baselines
-  detection/           # rules.py, statistical.py, correlation.py
-  alerts/              # alert model + stdout alerter
+  detection/           # rules.py, statistical.py, correlation.py, matcher.py
+  alerts/              # alert model + stdout & Home Assistant alerters
   tools/               # extract_pfsense.py (config.xml -> rules.yaml)
 settings.yaml          # hand-edited app settings
 rules.yaml             # GENERATED firewall rules + interface map (gitignored)
@@ -68,7 +68,7 @@ detection:
   correlation:
     enabled: true
     ruleset_path: "/config/rules.yaml"
-    alert_on_no_match: true
+    alert_on_no_match: false   # default-deny is noisy; action_mismatch is the high-signal alert
 ```
 
 ## Setup
@@ -83,6 +83,20 @@ python3 -m src.tools.extract_pfsense pfsense-config.xml -o rules.yaml   # real r
 
 `settings.yaml` and `rules.yaml` are gitignored — they stay local. `docker compose`
 mounts both into the container, so they must exist before `docker compose up`.
+
+### Storage
+
+Logs go into SQLite and are bounded by retention (hourly cleanup), so the DB
+plateaus rather than growing forever:
+
+```yaml
+storage:
+  retention_days: 30   # delete logs older than this
+  store_raw: true      # keep the full raw log line per row; false ~halves storage
+```
+
+SQLite doesn't auto-shrink after deletes — lowering these caps new growth but a
+one-time `VACUUM` is needed to reclaim existing file size.
 
 ## Usage
 
@@ -134,8 +148,15 @@ action:
 ```
 
 The POST body (`trigger.json`) also includes `severity`, `rule_name`, and
-`details`. `min_severity: critical` pushes only genuine security gaps (traffic
-that passed when a rule says block); everything still lands in the logs.
+`details`. `min_severity: critical` pushes only genuine security gaps; everything
+still lands in the logs.
+
+**Severity of `action_mismatch` is directional:**
+
+- **CRITICAL** — traffic *passed* when a rule expects *block* (something got
+  through that shouldn't have — a security gap).
+- **WARNING** — traffic was *blocked* when a rule expects *pass* (over-blocking;
+  more secure than configured, usually a connectivity issue).
 
 ## pfSense setup
 
