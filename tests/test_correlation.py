@@ -4,6 +4,7 @@ import os
 import unittest
 from datetime import datetime
 
+from src.alerts.base import AlertSeverity
 from src.detection.correlation import CorrelationDetector
 from src.detection.matcher import RuleMatcher
 from src.parsers.base import ParsedLog
@@ -134,14 +135,26 @@ class TestCorrelationDetector(unittest.TestCase):
         alerts = self.detector.evaluate(_log("block", "udp", "192.168.20.105", "8.8.8.8", 53))
         self.assertEqual(alerts, [])
 
-    def test_real_action_mismatch(self):
-        # rule 4 passes LAN IMAPS, but the packet was blocked -> CRITICAL.
+    def test_overblock_is_warning(self):
+        # rule 4 passes LAN IMAPS, but the packet was blocked: more secure than
+        # expected -> WARNING, not CRITICAL.
         alerts = self.detector.evaluate(
             _log("block", "tcp", "192.168.1.6", "172.253.115.108", 993, interface="igb1")
         )
         self.assertEqual(len(alerts), 1)
         self.assertEqual(alerts[0].rule_name, "action_mismatch")
         self.assertEqual(alerts[0].details["expected_action"], "pass")
+        self.assertEqual(alerts[0].severity, AlertSeverity.WARNING)
+
+    def test_security_gap_is_critical(self):
+        # rule 1 blocks VLAN20 -> external DNS, but this packet PASSED: a hole.
+        alerts = self.detector.evaluate(
+            _log("pass", "udp", "192.168.20.105", "8.8.8.8", 53, interface="igb1.20")
+        )
+        self.assertEqual(len(alerts), 1)
+        self.assertEqual(alerts[0].rule_name, "action_mismatch")
+        self.assertEqual(alerts[0].details["expected_action"], "block")
+        self.assertEqual(alerts[0].severity, AlertSeverity.CRITICAL)
 
     def test_no_matching_rule(self):
         alerts = self.detector.evaluate(

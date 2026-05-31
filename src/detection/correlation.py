@@ -108,14 +108,23 @@ class CorrelationDetector:
         expected = normalize_action(rule.action)
         observed = normalize_action(log.action)
         if expected and observed and expected != observed:
+            # Direction matters for risk:
+            #   passed but should block -> something got through (security gap) -> CRITICAL
+            #   blocked but should pass -> over-blocking, more secure than expected -> WARNING
+            if observed == "pass":
+                severity = AlertSeverity.CRITICAL
+                note = "traffic passed though the rule expects it blocked (possible security gap)"
+            else:
+                severity = AlertSeverity.WARNING
+                note = "traffic was blocked though the rule expects it passed (over-blocking, more secure than expected)"
             return [
                 Alert(
                     timestamp=datetime.now(),
-                    severity=AlertSeverity.CRITICAL,
+                    severity=severity,
                     rule_name="action_mismatch",
                     message=(
                         f"Observed action '{observed}' conflicts with the governing "
-                        f"rule (expects '{expected}')"
+                        f"rule (expects '{expected}'): {note}"
                     ),
                     details={
                         "source_ip": log.src_ip,
@@ -124,6 +133,7 @@ class CorrelationDetector:
                         "protocol": log.protocol,
                         "observed_action": observed,
                         "expected_action": expected,
+                        "assessment": note,
                         "rule": rule.description or "(no description)",
                         "interface": log.interface,
                     },
