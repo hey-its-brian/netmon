@@ -3,12 +3,15 @@
 This is the bridge that lets the full pfSense config.xml backup (which contains
 secrets) stay out of the running app. An offline extract step writes just the
 firewall rules + interface map here; the correlation detector reads it at runtime.
+
+The WRITE side (dump_ruleset) is intentionally pure-stdlib so the extract command
+can run on any host with only python3 — no pyyaml required. The READ side
+(load_ruleset) lazily imports pyyaml, which is only needed where rules.yaml is
+consumed (inside the container, which already has it).
 """
 
 from dataclasses import asdict
 from typing import Dict, List, Tuple
-
-import yaml
 
 from .pfsense import PFRule
 
@@ -19,19 +22,54 @@ _HEADER = (
 )
 
 
+def _scalar(value) -> str:
+    """Render a Python value as a YAML scalar (stdlib only).
+
+    Strings are emitted double-quoted with escaping so numeric-looking values
+    (e.g. a port "53") load back as strings, and special characters in rule
+    descriptions can't break the document. None becomes null.
+    """
+    if value is None:
+        return "null"
+    text = str(value)
+    text = (
+        text.replace("\\", "\\\\")
+        .replace('"', '\\"')
+        .replace("\n", "\\n")
+        .replace("\t", "\\t")
+        .replace("\r", "\\r")
+    )
+    return '"' + text + '"'
+
+
 def dump_ruleset(rules: List[PFRule], interfaces: Dict[str, str], path: str) -> None:
-    """Write the interface map and firewall rules to a YAML file."""
-    data = {
-        "interfaces": dict(interfaces),
-        "rules": [asdict(r) for r in rules],
-    }
+    """Write the interface map and firewall rules to a YAML file (stdlib only)."""
+    out = [_HEADER]
+
+    if interfaces:
+        out.append("interfaces:\n")
+        for name, device in interfaces.items():
+            out.append(f"  {name}: {_scalar(device)}\n")
+    else:
+        out.append("interfaces: {}\n")
+
+    if rules:
+        out.append("rules:\n")
+        for rule in rules:
+            for i, (key, value) in enumerate(asdict(rule).items()):
+                prefix = "  - " if i == 0 else "    "
+                out.append(f"{prefix}{key}: {_scalar(value)}\n")
+    else:
+        out.append("rules: []\n")
+
     with open(path, "w", encoding="utf-8") as f:
-        f.write(_HEADER)
-        yaml.safe_dump(data, f, sort_keys=False, default_flow_style=False)
+        f.write("".join(out))
 
 
 def load_ruleset(path: str) -> Tuple[List[PFRule], Dict[str, str]]:
     """Load (rules, interface_map) from a generated rules.yaml file."""
+    import yaml  # lazy: only needed where rules.yaml is consumed
+
     with open(path, encoding="utf-8") as f:
         data = yaml.safe_load(f) or {}
 
