@@ -28,7 +28,7 @@ logger = logging.getLogger(__name__)
 class NetworkLogMonitor:
     """Main application class."""
 
-    def __init__(self, config_path: str = "config.yaml"):
+    def __init__(self, config_path: str = "settings.yaml"):
         self.config = self._load_config(config_path)
         self.parsers: list[BaseParser] = []
         self.alerters: list[BaseAlerter] = []
@@ -252,8 +252,8 @@ def main():
     parser.add_argument(
         "config",
         nargs="?",
-        default="config.yaml",
-        help="Path to config.yaml (default: config.yaml)",
+        default="settings.yaml",
+        help="Path to settings.yaml (default: settings.yaml)",
     )
     parser.add_argument(
         "--replay",

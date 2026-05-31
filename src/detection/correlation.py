@@ -24,6 +24,7 @@ from typing import Dict, List, Optional
 from ..alerts.base import Alert, AlertSeverity
 from ..parsers.base import ParsedLog
 from ..ruleset.pfsense import PFRule, parse_pfsense_interfaces, parse_pfsense_rules
+from ..ruleset.yaml_io import load_ruleset
 
 logger = logging.getLogger(__name__)
 
@@ -114,27 +115,34 @@ class CorrelationDetector:
         self.rules: List[PFRule] = []
         self.iface_map: Dict[str, str] = {}
 
+        # Preferred: a sanitized rules.yaml produced by tools.extract_pfsense.
+        # Fallback: parse a full pfSense config.xml directly (config_path).
+        ruleset_path = config.get("ruleset_path")
         config_path = config.get("config_path")
         if self.enabled:
-            if not config_path:
+            source = ruleset_path or config_path
+            if not source:
                 logger.warning(
-                    "Correlation detection enabled but no config_path set; disabling."
+                    "Correlation enabled but no ruleset_path/config_path set; disabling."
                 )
                 self.enabled = False
             else:
                 try:
-                    self.rules = parse_pfsense_rules(config_path)
-                    self.iface_map = parse_pfsense_interfaces(config_path)
+                    if ruleset_path:
+                        self.rules, self.iface_map = load_ruleset(ruleset_path)
+                    else:
+                        self.rules = parse_pfsense_rules(config_path)
+                        self.iface_map = parse_pfsense_interfaces(config_path)
                     logger.info(
                         "Loaded %d firewall rule(s) and %d interface mapping(s) from %s",
                         len(self.rules),
                         len(self.iface_map),
-                        config_path,
+                        source,
                     )
                     if self.iface_map:
                         logger.info("Interface map: %s", self.iface_map)
-                except Exception as e:  # noqa: BLE001 - never let a bad config crash startup
-                    logger.error("Failed to load pfSense ruleset from %s: %s", config_path, e)
+                except Exception as e:  # noqa: BLE001 - never let a bad ruleset crash startup
+                    logger.error("Failed to load pfSense ruleset from %s: %s", source, e)
                     self.enabled = False
 
     def evaluate(self, log: ParsedLog) -> List[Alert]:

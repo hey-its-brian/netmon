@@ -17,5 +17,11 @@ venv/
 samples/filter.log
 
 # Real pfSense config backup — contains secrets (password hashes, VPN keys).
-# Never commit. Mounted read-only into the container for correlation.
+# Never commit. Only needed transiently to extract rules.yaml.
 pfsense-config.xml
+
+# Generated, sanitized ruleset (rules + interface map). Reveals network
+# topology even though it has no secrets — keep it local. Produced by
+# `python -m src.tools.extract_pfsense pfsense-config.xml -o rules.yaml`.
+# The synthetic samples/example_rules.yaml IS committed for tests/demos.
+/rules.yaml

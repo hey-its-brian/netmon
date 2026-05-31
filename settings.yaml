@@ -19,7 +19,7 @@ detection:
 
   correlation:
     enabled: true                 # Compare traffic against your pfSense ruleset
-    config_path: "/config/pfsense.xml"  # pfSense config backup (mounted read-only)
+    ruleset_path: "/config/rules.yaml"  # sanitized rules+interfaces (see tools.extract_pfsense)
     alert_on_no_match: true       # Alert on traffic matching no configured rule
 
 alerts:

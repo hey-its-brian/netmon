@@ -6,8 +6,8 @@ services:
       - "514:514/udp"
     volumes:
       - netmon-data:/data
-      - ./config.yaml:/app/config.yaml:ro
-      - ./pfsense-config.xml:/config/pfsense.xml:ro
+      - ./settings.yaml:/app/settings.yaml:ro
+      - ./rules.yaml:/config/rules.yaml:ro
     restart: unless-stopped
 
 volumes:
