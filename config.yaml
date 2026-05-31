@@ -18,8 +18,8 @@ detection:
     deviation_threshold: 3.0      # Alert at 3 standard deviations
 
   correlation:
-    enabled: false                # Compare traffic against your pfSense ruleset
-    config_path: "/data/config.xml"  # pfSense config backup (config.xml)
+    enabled: true                 # Compare traffic against your pfSense ruleset
+    config_path: "/config/pfsense.xml"  # pfSense config backup (mounted read-only)
     alert_on_no_match: true       # Alert on traffic matching no configured rule
 
 alerts:

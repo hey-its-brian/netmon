@@ -15,3 +15,7 @@ venv/
 # Real network captures — keep these local, do not publish.
 # Synthetic samples (example_config.xml) are committed for tests/demos.
 samples/filter.log
+
+# Real pfSense config backup — contains secrets (password hashes, VPN keys).
+# Never commit. Mounted read-only into the container for correlation.
+pfsense-config.xml
