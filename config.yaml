@@ -1,0 +1,21 @@
+syslog:
+  host: "0.0.0.0"
+  port: 514
+
+storage:
+  database: "/data/netmon.db"
+  retention_days: 30
+
+detection:
+  rules:
+    blocked_threshold: 100        # Alert if >100 blocks/min from one IP
+    port_scan_threshold: 20       # Alert if >20 ports hit in 60 seconds
+    suspicious_ports: [23, 445, 3389, 5900]
+
+  statistical:
+    enabled: true
+    learning_days: 7
+    deviation_threshold: 3.0      # Alert at 3 standard deviations
+
+alerts:
+  stdout: true

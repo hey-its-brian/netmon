@@ -1,0 +1,13 @@
+services:
+  netmon:
+    build: .
+    container_name: netmon
+    ports:
+      - "514:514/udp"
+    volumes:
+      - netmon-data:/data
+      - ./config.yaml:/app/config.yaml:ro
+    restart: unless-stopped
+
+volumes:
+  netmon-data:
