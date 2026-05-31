@@ -6,7 +6,8 @@ COPY requirements.txt .
 RUN pip install --no-cache-dir -r requirements.txt
 
 COPY src/ ./src/
-COPY settings.yaml .
+# Bake the template as the default; the real settings.yaml is bind-mounted at runtime.
+COPY settings.example.yaml ./settings.yaml
 
 VOLUME /data
 

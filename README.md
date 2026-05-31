@@ -71,6 +71,19 @@ detection:
     alert_on_no_match: true
 ```
 
+## Setup
+
+The repo ships **templates**, not your real config. After cloning:
+
+```bash
+cp settings.example.yaml settings.yaml        # then tune to taste
+cp rules.example.yaml rules.yaml              # placeholder until you extract real rules
+python3 -m src.tools.extract_pfsense pfsense-config.xml -o rules.yaml   # real ruleset
+```
+
+`settings.yaml` and `rules.yaml` are gitignored — they stay local. `docker compose`
+mounts both into the container, so they must exist before `docker compose up`.
+
 ## Usage
 
 Run live (listens on syslog UDP 514):

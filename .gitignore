@@ -20,8 +20,8 @@ samples/filter.log
 # Never commit. Only needed transiently to extract rules.yaml.
 pfsense-config.xml
 
-# Generated, sanitized ruleset (rules + interface map). Reveals network
-# topology even though it has no secrets — keep it local. Produced by
-# `python -m src.tools.extract_pfsense pfsense-config.xml -o rules.yaml`.
-# The synthetic samples/example_rules.yaml IS committed for tests/demos.
+# Local working config — copied from the committed *.example.yaml templates.
+# settings.yaml may hold deployment-specific values; rules.yaml reveals network
+# topology. Both stay local; the templates document the format.
+/settings.yaml
 /rules.yaml

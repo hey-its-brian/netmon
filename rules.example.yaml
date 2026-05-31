@@ -1,0 +1,45 @@
+# rules.yaml template / placeholder.
+#
+# In normal use you do NOT write this by hand — it is GENERATED from a pfSense
+# config.xml backup, which keeps the secret-bearing backup out of the running app:
+#
+#     python3 -m src.tools.extract_pfsense pfsense-config.xml -o rules.yaml
+#
+# The real rules.yaml is gitignored (it reveals network topology). This template
+# documents the format and lets `docker compose up` start before you've run the
+# extract (copy it: `cp rules.example.yaml rules.yaml`). With these placeholder
+# rules the correlation detector simply finds no real matches.
+
+# Logical pfSense interface name -> device + IP/subnet (for "lan net" style rules).
+interfaces:
+  lan:
+    device: "igb1"
+    ipaddr: "192.168.1.1"
+    subnet: "24"
+  opt1:
+    device: "igb1.20"
+    ipaddr: "192.168.20.1"
+    subnet: "24"
+
+# Named host/network/port groups referenced by rules.
+aliases:
+  DNS_Servers:
+    type: "host"
+    values:
+      - "8.8.8.8"
+      - "1.1.1.1"
+
+# Firewall rules in evaluation order (pfSense is first-match).
+# Address fields may be a literal IP, a CIDR, an alias name, or a network
+# keyword (lan / lanip / (self)). null means "any".
+rules:
+  - action: "block"
+    interface: "opt1"
+    protocol: "udp"
+    src_addr: "192.168.20.0/24"
+    src_port: null
+    src_not: false
+    dst_addr: "DNS_Servers"
+    dst_port: "53"
+    dst_not: false
+    description: "Example: block VLAN20 external DNS"
