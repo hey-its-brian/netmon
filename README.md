@@ -28,12 +28,47 @@ src/
   main.py              # entry point, wires everything together
   syslog_server.py     # async UDP syslog receiver
   parsers/             # log-line parsers (pfSense filterlog; pihole stub)
-  ruleset/             # pfSense config.xml firewall-rule parser
+  ruleset/             # pfSense config.xml parser + rules.yaml read/write
   storage/             # SQLite storage + baselines
   detection/           # rules.py, statistical.py, correlation.py
   alerts/              # alert model + stdout alerter
+  tools/               # extract_pfsense.py (config.xml -> rules.yaml)
+settings.yaml          # hand-edited app settings
+rules.yaml             # GENERATED firewall rules + interface map (gitignored)
 samples/
-  example_config.xml   # synthetic pfSense ruleset for tests/demos
+  example_config.xml   # synthetic pfSense config for tests/demos
+  example_rules.yaml   # synthetic generated ruleset for tests/demos
+```
+
+## Configuration: two files
+
+- **`settings.yaml`** — hand-edited basics (syslog, storage, detection thresholds,
+  alerts). This is the file you tune.
+- **`rules.yaml`** — *generated*, sanitized extract of your pfSense firewall rules
+  + interface map. The full `config.xml` backup (which contains secrets) never
+  needs to touch the running app — you extract just what correlation needs.
+
+Generate / refresh `rules.yaml` from a pfSense `config.xml` backup:
+
+```bash
+python -m src.tools.extract_pfsense pfsense-config.xml -o rules.yaml
+```
+
+This is designed to be driven by an automated backup pipeline:
+
+```
+[backup tool] -> config.xml -> extract_pfsense -> rules.yaml -> restart netmon
+```
+
+Correlation reads `rules.yaml` at startup, so restart the container after
+regenerating it. Enable it in `settings.yaml`:
+
+```yaml
+detection:
+  correlation:
+    enabled: true
+    ruleset_path: "/config/rules.yaml"
+    alert_on_no_match: true
 ```
 
 ## Usage
@@ -41,32 +76,19 @@ samples/
 Run live (listens on syslog UDP 514):
 
 ```bash
-python -m src.main config.yaml
+python -m src.main settings.yaml
 ```
 
 Replay an existing pfSense log through the full pipeline (no live feed needed):
 
 ```bash
-python -m src.main config.yaml --replay samples/filter.log
+python -m src.main settings.yaml --replay samples/filter.log
 ```
 
 Run the tests:
 
 ```bash
 python -m unittest discover -s tests
-```
-
-## Configuration
-
-See `config.yaml`. To enable rule-to-log correlation, point it at a pfSense
-config backup:
-
-```yaml
-detection:
-  correlation:
-    enabled: true
-    config_path: "/data/config.xml"   # your pfSense config.xml backup
-    alert_on_no_match: true
 ```
 
 ## pfSense setup
