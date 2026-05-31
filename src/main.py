@@ -56,7 +56,8 @@ class NetworkLogMonitor:
         storage_config = self.config.get("storage", {})
         db_path = storage_config.get("database", "/data/netmon.db")
         retention_days = storage_config.get("retention_days", 30)
-        self.database = Database(db_path, retention_days)
+        store_raw = storage_config.get("store_raw", True)
+        self.database = Database(db_path, retention_days, store_raw)
         logger.info(f"Database initialized: {db_path}")
 
         # Parsers

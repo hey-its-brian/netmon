@@ -9,7 +9,9 @@ syslog:
 
 storage:
   database: "/data/netmon.db"
-  retention_days: 30
+  retention_days: 30      # delete logs older than this (hourly cleanup). Lower = less disk.
+  store_raw: true         # keep the full raw log line per row (good for debugging).
+                          # set false to roughly halve storage if you don't need it.
 
 detection:
   rules:

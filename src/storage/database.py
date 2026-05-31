@@ -11,9 +11,10 @@ from ..parsers.base import ParsedLog
 class Database:
     """SQLite storage for parsed logs and baselines."""
 
-    def __init__(self, db_path: str, retention_days: int = 30):
+    def __init__(self, db_path: str, retention_days: int = 30, store_raw: bool = True):
         self.db_path = db_path
         self.retention_days = retention_days
+        self.store_raw = store_raw
         self._local = threading.local()
         self._init_db()
 
@@ -110,7 +111,7 @@ class Database:
                 log.dst_port,
                 log.interface,
                 log.direction,
-                log.raw,
+                log.raw if self.store_raw else "",
             ))
             return cursor.lastrowid
 
