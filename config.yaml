@@ -17,5 +17,10 @@ detection:
     learning_days: 7
     deviation_threshold: 3.0      # Alert at 3 standard deviations
 
+  correlation:
+    enabled: false                # Compare traffic against your pfSense ruleset
+    config_path: "/data/config.xml"  # pfSense config backup (config.xml)
+    alert_on_no_match: true       # Alert on traffic matching no configured rule
+
 alerts:
   stdout: true

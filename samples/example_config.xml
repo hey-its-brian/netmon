@@ -1,0 +1,35 @@
+<?xml version="1.0"?>
+<pfsense>
+  <version>23.09</version>
+  <filter>
+    <!-- Consistent: we intend to BLOCK VLAN20 clients reaching external DNS. -->
+    <rule>
+      <type>block</type>
+      <interface>opt2</interface>
+      <protocol>udp</protocol>
+      <source>
+        <any></any>
+      </source>
+      <destination>
+        <address>1.1.1.1</address>
+        <port>53</port>
+      </destination>
+      <descr>Block VLAN20 external DNS (Cloudflare)</descr>
+    </rule>
+
+    <!-- Mismatch demo: rule says PASS, but the log shows these blocked. -->
+    <rule>
+      <type>pass</type>
+      <interface>lan</interface>
+      <protocol>tcp</protocol>
+      <source>
+        <any></any>
+      </source>
+      <destination>
+        <address>172.253.115.108</address>
+        <port>993</port>
+      </destination>
+      <descr>Allow mail client IMAPS to Google</descr>
+    </rule>
+  </filter>
+</pfsense>

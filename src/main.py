@@ -9,6 +9,7 @@ import yaml
 
 from .alerts.base import BaseAlerter
 from .alerts.stdout import StdoutAlerter
+from .detection.correlation import CorrelationDetector
 from .detection.rules import RuleEngine
 from .detection.statistical import StatisticalDetector
 from .parsers.base import BaseParser, ParsedLog
@@ -34,6 +35,7 @@ class NetworkLogMonitor:
         self.database: Optional[Database] = None
         self.rule_engine: Optional[RuleEngine] = None
         self.stat_detector: Optional[StatisticalDetector] = None
+        self.correlation_detector: Optional[CorrelationDetector] = None
         self.syslog_server: Optional[SyslogServer] = None
         self._running = False
         self._stats_task: Optional[asyncio.Task] = None
@@ -71,6 +73,9 @@ class NetworkLogMonitor:
             detection_config.get("statistical", {}),
             self.database,
         )
+        self.correlation_detector = CorrelationDetector(
+            detection_config.get("correlation", {}),
+        )
         logger.info("Detection engines initialized")
 
         # Alerters
@@ -102,9 +107,13 @@ class NetworkLogMonitor:
         # Store the log
         self.database.store_log(parsed)
 
-        # Run rule-based detection
+        # Run rule-based (threshold) detection
         alerts = self.rule_engine.evaluate(parsed)
         for alert in alerts:
+            self._send_alert(alert)
+
+        # Run rule-to-log correlation against the configured pfSense ruleset
+        for alert in self.correlation_detector.evaluate(parsed):
             self._send_alert(alert)
 
     def _send_alert(self, alert) -> None:
@@ -167,6 +176,53 @@ class NetworkLogMonitor:
         await stop_event.wait()
         await self.shutdown()
 
+    def replay_file(self, path: str) -> dict:
+        """Replay a log file through the full pipeline (parse -> store -> detect).
+
+        Useful for testing and for analysing an existing pfSense filter.log
+        without a live syslog feed. Note: threshold/statistical rules that key
+        off "the last N minutes from now" will not fire on historical data, but
+        parsing, storage, and rule-to-log correlation work fully.
+        """
+        self._setup_components()
+
+        stats = {"lines": 0, "parsed": 0}
+        path_obj = Path(path)
+        with path_obj.open("r", encoding="utf-8", errors="ignore") as f:
+            for line in f:
+                line = line.strip()
+                if not line:
+                    continue
+                stats["lines"] += 1
+                self._handle_log_counting(line, "replay", stats)
+
+        logger.info(
+            "Replay complete: %d line(s) read, %d parsed and stored from %s",
+            stats["lines"],
+            stats["parsed"],
+            path,
+        )
+        return stats
+
+    def _handle_log_counting(self, raw_log: str, source_ip: str, stats: dict) -> None:
+        """Like _handle_log but tracks how many lines actually parsed."""
+        parsed: Optional[ParsedLog] = None
+        for parser in self.parsers:
+            if parser.can_parse(raw_log):
+                parsed = parser.parse(raw_log, source_ip)
+                if parsed:
+                    break
+        if not parsed:
+            return
+
+        stats["parsed"] += 1
+        self.database.store_log(parsed)
+
+        for alert in self.rule_engine.evaluate(parsed):
+            self._send_alert(alert)
+        for alert in self.correlation_detector.evaluate(parsed):
+            self._send_alert(alert)
+
     async def shutdown(self) -> None:
         """Gracefully shutdown the application."""
         logger.info("Shutting down...")
@@ -187,11 +243,30 @@ class NetworkLogMonitor:
 
 def main():
     """Entry point."""
-    config_path = "config.yaml"
-    if len(sys.argv) > 1:
-        config_path = sys.argv[1]
+    import argparse
 
-    monitor = NetworkLogMonitor(config_path)
+    parser = argparse.ArgumentParser(
+        prog="netmon",
+        description="Network log monitor: live syslog ingestion, storage, and detection.",
+    )
+    parser.add_argument(
+        "config",
+        nargs="?",
+        default="config.yaml",
+        help="Path to config.yaml (default: config.yaml)",
+    )
+    parser.add_argument(
+        "--replay",
+        metavar="LOGFILE",
+        help="Replay a pfSense log file through the pipeline instead of starting the syslog server.",
+    )
+    args = parser.parse_args()
+
+    monitor = NetworkLogMonitor(args.config)
+
+    if args.replay:
+        monitor.replay_file(args.replay)
+        return
 
     try:
         asyncio.run(monitor.run())
