@@ -33,3 +33,10 @@ detection:
 
 alerts:
   stdout: true
+
+  # Push alerts to a Home Assistant webhook (HA's notify/mobile app delivers them).
+  # In HA: Settings -> Automations -> trigger "Webhook" (set an ID) -> action "Notify".
+  homeassistant:
+    enabled: false
+    webhook_url: "http://192.168.1.220:8123/api/webhook/REPLACE_WITH_YOUR_ID"
+    min_severity: "critical"   # info | warning | critical  (critical = real security gaps only)

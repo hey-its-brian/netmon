@@ -104,6 +104,39 @@ Run the tests:
 python -m unittest discover -s tests
 ```
 
+## Alerting
+
+Alerts always print to stdout (`docker compose logs`). To also push them to
+**Home Assistant** (which then notifies your phone via its mobile app), enable
+the webhook alerter in `settings.yaml`:
+
+```yaml
+alerts:
+  stdout: true
+  homeassistant:
+    enabled: true
+    webhook_url: "http://192.168.1.220:8123/api/webhook/netmon_alert"
+    min_severity: "critical"   # info | warning | critical
+```
+
+In Home Assistant: **Settings → Automations → Create → trigger "Webhook"** (set
+the ID to match the URL, e.g. `netmon_alert`), then an action that notifies you:
+
+```yaml
+trigger:
+  - platform: webhook
+    webhook_id: netmon_alert
+action:
+  - service: notify.mobile_app_your_phone
+    data:
+      title: "{{ trigger.json.title }}"
+      message: "{{ trigger.json.message }}"
+```
+
+The POST body (`trigger.json`) also includes `severity`, `rule_name`, and
+`details`. `min_severity: critical` pushes only genuine security gaps (traffic
+that passed when a rule says block); everything still lands in the logs.
+
 ## pfSense setup
 
 Status → System Logs → Settings → enable Remote Logging, set the remote log

@@ -8,6 +8,7 @@ from typing import Optional
 import yaml
 
 from .alerts.base import BaseAlerter
+from .alerts.homeassistant import HomeAssistantAlerter
 from .alerts.stdout import StdoutAlerter
 from .detection.correlation import CorrelationDetector
 from .detection.rules import RuleEngine
@@ -83,6 +84,23 @@ class NetworkLogMonitor:
         alerts_config = self.config.get("alerts", {})
         if alerts_config.get("stdout", True):
             self.alerters.append(StdoutAlerter())
+        ha_config = alerts_config.get("homeassistant") or {}
+        if ha_config.get("enabled"):
+            webhook_url = ha_config.get("webhook_url")
+            if webhook_url:
+                min_severity = ha_config.get("min_severity", "critical")
+                self.alerters.append(
+                    HomeAssistantAlerter(
+                        webhook_url,
+                        min_severity,
+                        ha_config.get("timeout", 5),
+                    )
+                )
+                logger.info(
+                    "Home Assistant alerter enabled (min severity: %s)", min_severity
+                )
+            else:
+                logger.warning("Home Assistant alerts enabled but no webhook_url set")
         logger.info(f"Loaded {len(self.alerters)} alerter(s)")
 
         # Syslog server
