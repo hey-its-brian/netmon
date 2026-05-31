@@ -9,20 +9,21 @@ hard-coded thresholds), this detector compares each live log entry against the
                       of every rule that matched it (e.g. rules say block, the
                       packet passed)
 
-Interface-name caveat: a pfSense config rule's <interface> uses the logical
-name (lan, wan, opt1...) while filterlog reports the device name (igb1.20).
-They are not directly comparable, so interface matching is intentionally lenient
-(treated as "any") to avoid flooding no_matching_rule alerts. This mirrors the
-v0 behaviour from yalt_inspector and can be tightened later with an interface map.
+Interface matching: a pfSense config rule's <interface> uses the logical name
+(lan, wan, opt1...) while filterlog reports the device name (igb1.20). We bridge
+the two with the {logical: device} map parsed from the config's <interfaces>
+section. When the map can resolve a rule's interface, it is enforced; when it
+cannot (unknown name, or no <interfaces> section at all) interface matching
+falls back to lenient ("any") so we never raise false no_matching_rule alerts.
 """
 
 import logging
 from datetime import datetime
-from typing import List, Optional
+from typing import Dict, List, Optional
 
 from ..alerts.base import Alert, AlertSeverity
 from ..parsers.base import ParsedLog
-from ..ruleset.pfsense import PFRule, parse_pfsense_rules
+from ..ruleset.pfsense import PFRule, parse_pfsense_interfaces, parse_pfsense_rules
 
 logger = logging.getLogger(__name__)
 
@@ -47,9 +48,40 @@ def _match_field(rule_value: Optional[str], log_value: Optional[str]) -> bool:
     return rule_value == log_value
 
 
-def _rule_matches_log(rule: PFRule, log: ParsedLog) -> bool:
+def _interface_matches(
+    rule_iface: Optional[str], log_iface: Optional[str], iface_map: Dict[str, str]
+) -> bool:
+    """Compare a rule's logical interface against the log's device interface.
+
+    Lenient by design: if the rule has no interface, the map is empty, or the
+    rule's logical name(s) can't be resolved to a device, we treat it as "any".
+    Floating rules can list several interfaces (e.g. "wan,lan").
+    """
+    if not rule_iface:
+        return True
+    if not iface_map:
+        return True
+
+    devices = []
+    for logical in rule_iface.split(","):
+        logical = logical.strip()
+        device = iface_map.get(logical)
+        if device:
+            devices.append(device)
+
+    # Couldn't resolve any of the rule's interfaces -> don't constrain on it.
+    if not devices:
+        return True
+    if log_iface is None:
+        return False
+    return log_iface in devices
+
+
+def _rule_matches_log(rule: PFRule, log: ParsedLog, iface_map: Dict[str, str]) -> bool:
     """Return True if a configured rule could govern this log entry."""
-    # Interface intentionally NOT compared (logical vs device name mismatch).
+    # interface (logical rule name resolved to device via the interface map)
+    if not _interface_matches(rule.interface, log.interface, iface_map):
+        return False
 
     # protocol
     if not _match_field(rule.protocol, log.protocol):
@@ -80,6 +112,7 @@ class CorrelationDetector:
         self.enabled = config.get("enabled", False)
         self.alert_on_no_match = config.get("alert_on_no_match", True)
         self.rules: List[PFRule] = []
+        self.iface_map: Dict[str, str] = {}
 
         config_path = config.get("config_path")
         if self.enabled:
@@ -91,11 +124,15 @@ class CorrelationDetector:
             else:
                 try:
                     self.rules = parse_pfsense_rules(config_path)
+                    self.iface_map = parse_pfsense_interfaces(config_path)
                     logger.info(
-                        "Loaded %d firewall rule(s) from %s",
+                        "Loaded %d firewall rule(s) and %d interface mapping(s) from %s",
                         len(self.rules),
+                        len(self.iface_map),
                         config_path,
                     )
+                    if self.iface_map:
+                        logger.info("Interface map: %s", self.iface_map)
                 except Exception as e:  # noqa: BLE001 - never let a bad config crash startup
                     logger.error("Failed to load pfSense ruleset from %s: %s", config_path, e)
                     self.enabled = False
@@ -105,7 +142,7 @@ class CorrelationDetector:
         if not self.enabled or not self.rules:
             return []
 
-        matching = [r for r in self.rules if _rule_matches_log(r, log)]
+        matching = [r for r in self.rules if _rule_matches_log(r, log, self.iface_map)]
 
         # No configured rule governs this traffic.
         if not matching:

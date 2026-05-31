@@ -7,7 +7,7 @@ traffic can be correlated against the *actual* configured ruleset.
 
 import xml.etree.ElementTree as ET
 from dataclasses import dataclass
-from typing import List, Optional
+from typing import Dict, List, Optional
 
 
 @dataclass
@@ -23,6 +23,32 @@ class PFRule:
     nat_target_ip: Optional[str]
     nat_target_port: Optional[str]
     description: Optional[str]
+
+
+def parse_pfsense_interfaces(path: str) -> Dict[str, str]:
+    """Parse the <interfaces> section into a {logical_name: device} map.
+
+    pfSense rules reference logical interface names (wan, lan, opt1, opt2...)
+    while filterlog reports device names (igb0, igb1, igb1.20). This map lets
+    the correlation detector translate between the two. Example result:
+        {"wan": "igb0", "lan": "igb1", "opt2": "igb1.20"}
+    """
+    tree = ET.parse(path)
+    root = tree.getroot()
+
+    mapping: Dict[str, str] = {}
+
+    interfaces = root.find("interfaces")
+    if interfaces is None:
+        return mapping
+
+    for iface in list(interfaces):
+        logical = iface.tag  # wan / lan / opt1 / opt2 / ...
+        device = iface.findtext("if")
+        if device:
+            mapping[logical] = device.strip()
+
+    return mapping
 
 
 def parse_pfsense_rules(path: str) -> List[PFRule]:

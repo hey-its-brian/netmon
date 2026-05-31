@@ -6,14 +6,14 @@ from datetime import datetime
 
 from src.detection.correlation import CorrelationDetector
 from src.parsers.base import ParsedLog
-from src.ruleset.pfsense import parse_pfsense_rules
+from src.ruleset.pfsense import parse_pfsense_interfaces, parse_pfsense_rules
 
 SAMPLE_CONFIG = os.path.join(
     os.path.dirname(__file__), "..", "samples", "example_config.xml"
 )
 
 
-def _log(action, protocol, src_ip, dst_ip, dst_port):
+def _log(action, protocol, src_ip, dst_ip, dst_port, interface="igb1.20"):
     return ParsedLog(
         timestamp=datetime(2026, 1, 1, 12, 0, 0),
         source_ip="10.0.0.1",
@@ -24,7 +24,7 @@ def _log(action, protocol, src_ip, dst_ip, dst_port):
         src_port=12345,
         dst_ip=dst_ip,
         dst_port=dst_port,
-        interface="igb1.20",
+        interface=interface,
         direction="in",
         raw="",
     )
@@ -34,6 +34,12 @@ class TestRulesetParser(unittest.TestCase):
     def test_parses_sample_config(self):
         rules = parse_pfsense_rules(SAMPLE_CONFIG)
         self.assertEqual(len(rules), 2)
+
+    def test_parses_interface_map(self):
+        iface_map = parse_pfsense_interfaces(SAMPLE_CONFIG)
+        self.assertEqual(iface_map.get("wan"), "igb0")
+        self.assertEqual(iface_map.get("lan"), "igb1")
+        self.assertEqual(iface_map.get("opt2"), "igb1.20")
 
     def test_extracts_rule_fields(self):
         rules = parse_pfsense_rules(SAMPLE_CONFIG)
@@ -62,9 +68,9 @@ class TestCorrelationDetector(unittest.TestCase):
         self.assertEqual(alerts, [])
 
     def test_action_mismatch(self):
-        # Rule passes tcp -> 172.253.115.108:993 but the log shows block.
+        # Rule passes tcp -> 172.253.115.108:993 on LAN (igb1) but log shows block.
         alerts = self.detector.evaluate(
-            _log("block", "tcp", "192.168.1.6", "172.253.115.108", 993)
+            _log("block", "tcp", "192.168.1.6", "172.253.115.108", 993, interface="igb1")
         )
         self.assertEqual(len(alerts), 1)
         self.assertEqual(alerts[0].rule_name, "action_mismatch")
@@ -73,6 +79,23 @@ class TestCorrelationDetector(unittest.TestCase):
         alerts = self.detector.evaluate(_log("block", "udp", "192.168.20.105", "8.8.8.8", 53))
         self.assertEqual(len(alerts), 1)
         self.assertEqual(alerts[0].rule_name, "no_matching_rule")
+
+    def test_interface_mismatch_prevents_rule_match(self):
+        # Same traffic as the consistent block rule (opt2 -> igb1.20), but seen
+        # on the LAN device instead. The opt2 rule must NOT match, so this falls
+        # through to no_matching_rule rather than a silent consistent match.
+        alerts = self.detector.evaluate(
+            _log("block", "udp", "192.168.20.105", "1.1.1.1", 53, interface="igb1")
+        )
+        self.assertEqual(len(alerts), 1)
+        self.assertEqual(alerts[0].rule_name, "no_matching_rule")
+
+    def test_interface_match_on_vlan_device(self):
+        # opt2 maps to igb1.20; correct device + consistent action -> no alert.
+        alerts = self.detector.evaluate(
+            _log("block", "udp", "192.168.20.105", "1.1.1.1", 53, interface="igb1.20")
+        )
+        self.assertEqual(alerts, [])
 
     def test_no_match_suppressed_when_disabled(self):
         detector = CorrelationDetector(

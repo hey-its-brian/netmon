@@ -1,6 +1,20 @@
 <?xml version="1.0"?>
 <pfsense>
   <version>23.09</version>
+  <interfaces>
+    <wan>
+      <if>igb0</if>
+      <descr>WAN</descr>
+    </wan>
+    <lan>
+      <if>igb1</if>
+      <descr>LAN</descr>
+    </lan>
+    <opt2>
+      <if>igb1.20</if>
+      <descr>VLAN20</descr>
+    </opt2>
+  </interfaces>
   <filter>
     <!-- Consistent: we intend to BLOCK VLAN20 clients reaching external DNS. -->
     <rule>
@@ -17,7 +31,7 @@
       <descr>Block VLAN20 external DNS (Cloudflare)</descr>
     </rule>
 
-    <!-- Mismatch demo: rule says PASS, but the log shows these blocked. -->
+    <!-- Mismatch demo: rule says PASS on LAN, but the log shows these blocked. -->
     <rule>
       <type>pass</type>
       <interface>lan</interface>
