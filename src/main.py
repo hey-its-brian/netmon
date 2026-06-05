@@ -147,16 +147,19 @@ class NetworkLogMonitor:
         """Run periodic maintenance tasks."""
         while self._running:
             try:
-                # Update statistical baselines
-                self.stat_detector.update_baselines()
-
-                # Check for statistical anomalies
+                # Check for anomalies against the EXISTING baseline first, then
+                # fold this sample in. If we updated first, the current spike
+                # would be averaged into the mean before being tested against it,
+                # suppressing the very anomaly we want to catch.
                 if not self.stat_detector.is_learning():
                     alerts = self.stat_detector.check_deviations()
                     for alert in alerts:
                         self._send_alert(alert)
                 else:
                     logger.info("Statistical detector in learning mode")
+
+                # Update statistical baselines with this interval's sample.
+                self.stat_detector.update_baselines()
 
                 # Cleanup old logs periodically
                 deleted = self.database.cleanup_old_logs()

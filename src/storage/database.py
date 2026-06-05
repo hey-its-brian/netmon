@@ -22,8 +22,21 @@ class Database:
         """Get a thread-local database connection."""
         if not hasattr(self._local, "connection"):
             Path(self.db_path).parent.mkdir(parents=True, exist_ok=True)
-            self._local.connection = sqlite3.connect(self.db_path)
-            self._local.connection.row_factory = sqlite3.Row
+            conn = sqlite3.connect(self.db_path)
+            conn.row_factory = sqlite3.Row
+            # WAL lets the single writer commit without a full fsync per
+            # transaction, and lets readers proceed concurrently. With
+            # synchronous=NORMAL the writer only fsyncs at checkpoint time,
+            # which is safe under WAL (a crash can lose the last few
+            # transactions but never corrupts the db). This is the difference
+            # between an fsync per log line and amortized fsyncs -- the main
+            # throughput win once the index fix removed the CPU bottleneck.
+            # busy_timeout avoids spurious "database is locked" errors if a
+            # checkpoint and a write briefly contend.
+            conn.execute("PRAGMA journal_mode=WAL")
+            conn.execute("PRAGMA synchronous=NORMAL")
+            conn.execute("PRAGMA busy_timeout=5000")
+            self._local.connection = conn
         return self._local.connection
 
     @contextmanager
@@ -46,7 +59,13 @@ class Database:
             cursor.execute("""
                 CREATE TABLE IF NOT EXISTS logs (
                     id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    -- timestamp = when WE received/ingested the line, on the
+                    -- container clock. All sliding-window detection keys off
+                    -- this so it is immune to firewall/container clock skew and
+                    -- to the year-less syslog header. event_time below keeps the
+                    -- firewall's own reported time for forensics/display.
                     timestamp DATETIME NOT NULL,
+                    event_time DATETIME,
                     source_ip TEXT NOT NULL,
                     log_type TEXT NOT NULL,
                     action TEXT,
@@ -62,20 +81,38 @@ class Database:
                 )
             """)
 
+            # idx_logs_timestamp backs the time-window aggregate queries
+            # (hourly stats, top sources, cleanup).
             cursor.execute("""
                 CREATE INDEX IF NOT EXISTS idx_logs_timestamp
                 ON logs(timestamp)
             """)
 
+            # The two per-packet detection queries dominate runtime, so they get
+            # composite indexes matching their exact WHERE shape. Without these,
+            # SQLite falls back to the single-column src_ip/action indexes and
+            # scans a chatty host's full history (or every 'block' row) on every
+            # incoming log line -- O(table size) per packet, which pegs a core
+            # as the table grows toward the retention window.
+            #
+            # get_blocks_by_ip:    WHERE src_ip=? AND action='block' AND timestamp>?
             cursor.execute("""
-                CREATE INDEX IF NOT EXISTS idx_logs_src_ip
-                ON logs(src_ip)
+                CREATE INDEX IF NOT EXISTS idx_logs_src_action_ts
+                ON logs(src_ip, action, timestamp)
             """)
 
+            # get_ports_hit_by_ip: WHERE src_ip=? AND timestamp>? (DISTINCT dst_port)
+            # Trailing dst_port makes this a covering index for the SELECT.
             cursor.execute("""
-                CREATE INDEX IF NOT EXISTS idx_logs_action
-                ON logs(action)
+                CREATE INDEX IF NOT EXISTS idx_logs_src_ts_port
+                ON logs(src_ip, timestamp, dst_port)
             """)
+
+            # The old single-column src_ip/action indexes are now redundant --
+            # both are covered as prefixes of the composites above. Drop them so
+            # we don't pay their write/disk overhead. (No-op on fresh installs.)
+            cursor.execute("DROP INDEX IF EXISTS idx_logs_src_ip")
+            cursor.execute("DROP INDEX IF EXISTS idx_logs_action")
 
             cursor.execute("""
                 CREATE TABLE IF NOT EXISTS baselines (
@@ -92,15 +129,21 @@ class Database:
             """)
 
     def store_log(self, log: ParsedLog) -> int:
-        """Store a parsed log entry."""
+        """Store a parsed log entry.
+
+        `timestamp` is stamped with our receive time (datetime.now), NOT the
+        log's self-reported time, so the threshold/port-scan/stats windows use a
+        single consistent clock. The log's own time is preserved in event_time.
+        """
         with self._cursor() as cursor:
             cursor.execute("""
                 INSERT INTO logs (
-                    timestamp, source_ip, log_type, action, protocol,
+                    timestamp, event_time, source_ip, log_type, action, protocol,
                     src_ip, src_port, dst_ip, dst_port, interface, direction, raw
-                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             """, (
-                log.timestamp.isoformat(),
+                datetime.now().isoformat(),
+                log.timestamp.isoformat() if log.timestamp else None,
                 log.source_ip,
                 log.log_type,
                 log.action,

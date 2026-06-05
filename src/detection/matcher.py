@@ -93,6 +93,14 @@ class RuleMatcher:
     # ---- per-rule matching ------------------------------------------------
 
     def _match(self, rule: PFRule, log) -> str:
+        # Only pass/block (and reject, normalized to block) rules decide a
+        # packet's fate. pfSense "match" rules (floating shaper/limiter rules)
+        # and other non-terminating actions tag traffic and let evaluation
+        # continue -- treating one as the governing rule would compare its
+        # "match" action against the observed pass/block and fire a false alert.
+        if normalize_action(rule.action) not in ("pass", "block"):
+            return NO
+
         if not self._iface_matches(rule.interface, log.interface):
             return NO
 
