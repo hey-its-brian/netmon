@@ -39,3 +39,8 @@ class BaseAlerter(ABC):
     def send(self, alert: Alert) -> bool:
         """Send an alert. Returns True if successful."""
         pass
+
+    def close(self) -> None:
+        """Release resources on shutdown. Default is a no-op; alerters that hold
+        connections or background threads (e.g. MQTT) override this."""
+        pass

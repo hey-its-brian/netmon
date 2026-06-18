@@ -8,7 +8,8 @@ from typing import Optional
 import yaml
 
 from .alerts.base import BaseAlerter
-from .alerts.homeassistant import HomeAssistantAlerter
+from .alerts.jsonl import JsonlAlerter
+from .alerts.mqtt import MqttAlerter
 from .alerts.stdout import StdoutAlerter
 from .detection.correlation import CorrelationDetector
 from .detection.rules import RuleEngine
@@ -84,23 +85,38 @@ class NetworkLogMonitor:
         alerts_config = self.config.get("alerts", {})
         if alerts_config.get("stdout", True):
             self.alerters.append(StdoutAlerter())
-        ha_config = alerts_config.get("homeassistant") or {}
-        if ha_config.get("enabled"):
-            webhook_url = ha_config.get("webhook_url")
-            if webhook_url:
-                min_severity = ha_config.get("min_severity", "critical")
+        mqtt_config = alerts_config.get("mqtt") or {}
+        if mqtt_config.get("enabled"):
+            mqtt_host = mqtt_config.get("host")
+            if mqtt_host:
+                min_severity = mqtt_config.get("min_severity", "info")
                 self.alerters.append(
-                    HomeAssistantAlerter(
-                        webhook_url,
-                        min_severity,
-                        ha_config.get("timeout", 5),
+                    MqttAlerter(
+                        mqtt_host,
+                        mqtt_config.get("port", 1883),
+                        username=mqtt_config.get("username") or None,
+                        password=mqtt_config.get("password") or None,
+                        base_topic=mqtt_config.get("base_topic", "netmon"),
+                        discovery_prefix=mqtt_config.get("discovery_prefix", "homeassistant"),
+                        min_severity=min_severity,
                     )
                 )
                 logger.info(
-                    "Home Assistant alerter enabled (min severity: %s)", min_severity
+                    "MQTT alerter enabled (broker: %s:%s, min severity: %s)",
+                    mqtt_host,
+                    mqtt_config.get("port", 1883),
+                    min_severity,
                 )
             else:
-                logger.warning("Home Assistant alerts enabled but no webhook_url set")
+                logger.warning("MQTT alerts enabled but no host set")
+        jsonl_config = alerts_config.get("jsonl") or {}
+        if jsonl_config.get("enabled"):
+            jsonl_path = jsonl_config.get("path")
+            if jsonl_path:
+                self.alerters.append(JsonlAlerter(jsonl_path))
+                logger.info("JSONL alerter enabled (path: %s)", jsonl_path)
+            else:
+                logger.warning("JSONL alerts enabled but no path set")
         logger.info(f"Loaded {len(self.alerters)} alerter(s)")
 
         # Syslog server
@@ -259,6 +275,12 @@ class NetworkLogMonitor:
 
         if self.syslog_server:
             await self.syslog_server.stop()
+
+        for alerter in self.alerters:
+            try:
+                alerter.close()
+            except Exception as e:
+                logger.error(f"Failed to close alerter {type(alerter).__name__}: {e}")
 
         logger.info("Shutdown complete")
 

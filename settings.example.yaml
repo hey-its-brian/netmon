@@ -34,9 +34,22 @@ detection:
 alerts:
   stdout: true
 
-  # Push alerts to a Home Assistant webhook (HA's notify/mobile app delivers them).
-  # In HA: Settings -> Automations -> trigger "Webhook" (set an ID) -> action "Notify".
-  homeassistant:
+  # Append each alert as a JSON line. Feeds external dashboards like
+  # cyd-server-monitor, which counts recent alerts from this file.
+  jsonl:
     enabled: false
-    webhook_url: "http://192.168.1.220:8123/api/webhook/REPLACE_WITH_YOUR_ID"
-    min_severity: "critical"   # info | warning | critical  (critical = real security gaps only)
+    path: "/data/alerts.jsonl"
+
+  # Publish alerts to MQTT with Home Assistant MQTT Discovery. HA auto-creates an
+  # event entity (event.netmon_alert) and a sensor (sensor.netmon_last_alert) on
+  # one "netmon" device — no manual HA config. Filter in your HA automation, e.g.
+  # trigger on the event entity where event_type == "critical" to notify your phone.
+  mqtt:
+    enabled: false
+    host: "192.168.1.220"      # MQTT broker (e.g. the HA host running Mosquitto)
+    port: 1883
+    username: ""               # optional; leave blank for anonymous brokers
+    password: ""
+    base_topic: "netmon"       # netmon/status (availability), netmon/event, netmon/alert
+    discovery_prefix: "homeassistant"  # must match HA's MQTT discovery prefix
+    min_severity: "info"       # info | warning | critical — gate which alerts publish

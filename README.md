@@ -17,8 +17,9 @@ SQLite, and raises alerts on anomalies using three complementary detectors.
 ```
 pfSense ──syslog/UDP 514──▶ Syslog Receiver ─▶ Parser ─▶ SQLite ─▶ Detection ─▶ Alerts
                                                                    ├─ threshold rules        ├─ stdout (logs)
-                                                                   ├─ statistical baselines  └─ Home Assistant
-                                                                   └─ rule-to-log correlation    (CRITICAL push)
+                                                                   ├─ statistical baselines  ├─ JSONL (dashboards)
+                                                                   └─ rule-to-log correlation └─ MQTT → Home Assistant
+                                                                                                  (auto-discovery)
 ```
 
 ## Layout
@@ -31,7 +32,7 @@ src/
   ruleset/             # pfSense config.xml parser + rules.yaml read/write
   storage/             # SQLite storage + baselines
   detection/           # rules.py, statistical.py, correlation.py, matcher.py
-  alerts/              # alert model + stdout & Home Assistant alerters
+  alerts/              # alert model + stdout, JSONL, and MQTT (HA) alerters
   tools/               # extract_pfsense.py (config.xml -> rules.yaml)
 settings.yaml          # hand-edited app settings
 rules.yaml             # GENERATED firewall rules + interface map (gitignored)
@@ -121,35 +122,57 @@ python -m unittest discover -s tests
 ## Alerting
 
 Alerts always print to stdout (`docker compose logs`). To also push them to
-**Home Assistant** (which then notifies your phone via its mobile app), enable
-the webhook alerter in `settings.yaml`:
+**Home Assistant**, enable the MQTT alerter in `settings.yaml`:
 
 ```yaml
 alerts:
   stdout: true
-  homeassistant:
+  mqtt:
     enabled: true
-    webhook_url: "http://192.168.1.220:8123/api/webhook/netmon_alert"
-    min_severity: "critical"   # info | warning | critical
+    host: "192.168.1.220"      # your MQTT broker (often the HA host running Mosquitto)
+    port: 1883
+    username: ""               # optional
+    password: ""
+    base_topic: "netmon"
+    discovery_prefix: "homeassistant"
+    min_severity: "info"       # info | warning | critical
 ```
 
-In Home Assistant: **Settings → Automations → Create → trigger "Webhook"** (set
-the ID to match the URL, e.g. `netmon_alert`), then an action that notifies you:
+netmon uses **MQTT Discovery**, so it advertises its own entities — HA wires
+itself up with no manual config. After enabling, a `netmon` device appears in
+**Settings → Devices & Services → MQTT** with two entities:
+
+| Entity | What it is |
+|--------|------------|
+| `event.netmon_alert` | Fires once per alert. `event_type` is the severity (`info`/`warning`/`critical`); `rule_name`, `message`, and `details` ride along as attributes. Trigger automations off this. |
+| `sensor.netmon_last_alert` | The most recent alert message, with severity/rule/details as attributes. Retained, so it survives restarts — good for dashboards. |
+
+An MQTT Last-Will keeps both entities accurate: if netmon stops, the broker
+publishes `offline` to `netmon/status` and HA shows them **unavailable**.
+
+To get a phone push on real security gaps, add an HA automation that triggers on
+the event entity and filters by `event_type`:
 
 ```yaml
 trigger:
-  - platform: webhook
-    webhook_id: netmon_alert
+  - platform: state
+    entity_id: event.netmon_alert
+condition:
+  - condition: template
+    value_template: "{{ trigger.to_state.attributes.event_type == 'critical' }}"
 action:
   - service: notify.mobile_app_your_phone
     data:
-      title: "{{ trigger.json.title }}"
-      message: "{{ trigger.json.message }}"
+      title: "netmon: {{ trigger.to_state.attributes.rule_name }}"
+      message: "{{ trigger.to_state.attributes.message }}"
 ```
 
-The POST body (`trigger.json`) also includes `severity`, `rule_name`, and
-`details`. `min_severity: critical` pushes only genuine security gaps; everything
-still lands in the logs.
+`min_severity` gates what netmon publishes at all; filtering by `event_type` in
+the automation is what decides which alerts actually buzz your phone. Everything
+still lands in the logs regardless.
+
+**Prerequisite:** an MQTT broker (e.g. the Mosquitto add-on) and HA's **MQTT
+integration** must be set up. netmon publishes to the broker; HA reads from it.
 
 **Severity of `action_mismatch` is directional:**
 
